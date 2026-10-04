@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+data/*.db*
+logs/*
+
+# Local credentials, configuration, and runtime state
+config/
+data/
+logs/
+releases/
+*.env
+*.pem
+*.key
