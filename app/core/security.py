@@ -8,7 +8,7 @@ def authorize(request: Request, reporting=False):
     if not token:
         raise HTTPException(503, 'Authentication is not configured')
     supplied = request.headers.get('authorization', '')
-    if not secrets.compare_digest(supplied, 'Bearer ' + token.get_secret_value()):
+    if not secrets.compare_digest(supplied.encode('utf-8'), ('Bearer ' + token.get_secret_value()).encode('utf-8')):
         raise HTTPException(401, 'Authentication required', headers={'WWW-Authenticate': 'Bearer'})
 
 def admin(request: Request):

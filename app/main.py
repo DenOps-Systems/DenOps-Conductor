@@ -10,10 +10,12 @@ from app.core.database import get_db
 from app.models import Project, BuilderVM, Repair, AlphaSlot, Release, Migration, AuditEvent, now
 from app.schemas import ProjectInput, VMInput, RepairInput
 from app.services.events import emit
-from app.services.source import source_archive
+from app.services.source import source_cache
+from app.core.request_limits import RequestSizeLimit
 
 app = FastAPI(title="DenOps Conductor", version="0.3.0")
 app.include_router(infrastructure_router)
+app.add_middleware(RequestSizeLimit)
 
 @app.middleware("http")
 async def secure_headers(request, call_next):
@@ -169,4 +171,4 @@ def license_text():
 
 @app.get("/source", include_in_schema=False)
 def corresponding_source():
-    return Response(source_archive(), media_type="application/gzip", headers={"Content-Disposition": 'attachment; filename="denops-conductor-source.tar.gz"'})
+    return Response(source_cache.get(), media_type="application/gzip", headers={"Content-Disposition": 'attachment; filename="denops-conductor-source.tar.gz"'})

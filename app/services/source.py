@@ -3,6 +3,7 @@
 from io import BytesIO
 from pathlib import Path
 import tarfile
+from threading import Lock
 
 ROOT = Path(__file__).resolve().parents[2]
 FILES = ('LICENSE', 'README.md', 'CONTRIBUTING.md', 'requirements.txt', 'alembic.ini', '.env.example', '.gitignore')
@@ -36,3 +37,22 @@ def source_archive(root: Path = ROOT) -> bytes:
             info.mode = 0o644
             archive.addfile(info, BytesIO(raw))
     return output.getvalue()
+
+
+class SourceArchiveCache:
+    """One source snapshot per worker lifetime, serialized on first request.
+
+    Deployments must restart workers with their immutable release source.
+    """
+    def __init__(self, root=ROOT):
+        self.root = root
+        self._lock = Lock()
+        self._archive = None
+
+    def get(self):
+        with self._lock:
+            if self._archive is None:
+                self._archive = source_archive(self.root)
+            return self._archive
+
+source_cache = SourceArchiveCache()
