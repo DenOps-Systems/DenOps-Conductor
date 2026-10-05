@@ -6,7 +6,7 @@ import tarfile
 from threading import Lock
 
 ROOT = Path(__file__).resolve().parents[2]
-FILES = ('LICENSE', 'README.md', 'CONTRIBUTING.md', 'requirements.txt', 'alembic.ini', '.env.example', '.gitignore')
+FILES = ('LICENSE', 'README.md', 'CONTRIBUTING.md', 'OPERATIONS.md', 'requirements.txt', 'alembic.ini', '.env.example', '.gitignore')
 
 def source_archive(root: Path = ROOT) -> bytes:
     root = root.resolve()
