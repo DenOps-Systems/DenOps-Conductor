@@ -172,3 +172,12 @@ class RecoveryActionRecord(Base):
     requested_at: Mapped[datetime] = mapped_column(default=now)
     completed_at: Mapped[datetime | None]
     verification_result: Mapped[str] = mapped_column(default="unknown")
+
+class ReportCredential(Base):
+    __tablename__ = "report_credentials"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    name: Mapped[str]
+    token_digest: Mapped[str] = mapped_column(unique=True)
+    created_at: Mapped[datetime] = mapped_column(default=now)
+    revoked_at: Mapped[datetime | None]

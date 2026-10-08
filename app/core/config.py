@@ -6,7 +6,6 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="CONDUCTOR_")
     database_url: str = "sqlite:///data/conductor.db"
     admin_token: SecretStr | None = None
-    report_token: SecretStr | None = None
     proxmox_url: str | None = None
     proxmox_token: SecretStr | None = None
     proxmox_ca_file: str | None = None

@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 from pathlib import Path
+import secrets
+from hashlib import sha256
+from pydantic import BaseModel, Field
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import select, case, update
@@ -7,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.security import admin, reporter
 from app.api.infrastructure import router as infrastructure_router
 from app.core.database import get_db
-from app.models import Project, BuilderVM, Repair, AlphaSlot, Release, Migration, AuditEvent, now
+from app.models import Project, BuilderVM, Repair, AlphaSlot, Release, Migration, AuditEvent, ReportCredential, now
 from app.schemas import ProjectInput, VMInput, RepairInput
 from app.services.events import emit
 from app.services.source import source_cache
@@ -126,9 +129,49 @@ def ingest(payload, db, actor):
 def create_repair(payload: RepairInput, db=Depends(get_db)):
     return ingest(payload, db, "admin")
 
-@app.post("/api/reports", dependencies=[Depends(reporter)], status_code=201)
-def report(payload: RepairInput, db=Depends(get_db)):
-    return ingest(payload, db, "reporter")
+@app.post("/api/reports", status_code=201)
+def report(payload: RepairInput, credential=Depends(reporter), db=Depends(get_db)):
+    if payload.project_id != credential.project_id:
+        raise HTTPException(403, "Reporting credential belongs to another project")
+    # Refresh revocation after obtaining the SQLite writer lock.
+    db.execute(update(AlphaSlot).where(AlphaSlot.id == 1).values(id=1))
+    db.refresh(credential)
+    if credential.revoked_at is not None:
+        raise HTTPException(401, "Reporting credential revoked")
+    row = ingest(payload, db, "report-credential:" + str(credential.id))
+    # Applications receive acknowledgement, not internal builder/repair notes.
+    return {key: row[key] for key in ("id", "project_id", "occurrence_count", "state")}
+
+class CredentialInput(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+@app.get("/api/projects/{identity}/report-credentials", dependencies=[Depends(admin)])
+def list_credentials(identity: int, db=Depends(get_db)):
+    project_exists(db, identity)
+    return [{key: getattr(row, key) for key in ("id", "project_id", "name", "created_at", "revoked_at")} for row in db.scalars(select(ReportCredential).where(ReportCredential.project_id == identity).order_by(ReportCredential.id))]
+
+@app.post("/api/projects/{identity}/report-credentials", dependencies=[Depends(admin)], status_code=201)
+def issue_credential(identity: int, payload: CredentialInput, db=Depends(get_db)):
+    project_exists(db, identity)
+    token = "drc_" + secrets.token_urlsafe(48)
+    row = ReportCredential(project_id=identity, name=payload.name, token_digest=sha256(token.encode()).hexdigest())
+    db.add(row)
+    db.flush()
+    audit(db, "report-credential-issued", "report-credential", row.id, "project:" + str(identity))
+    commit(db)
+    return {"id": row.id, "project_id": identity, "name": row.name, "token": token}
+
+@app.post("/api/report-credentials/{identity}/revoke", dependencies=[Depends(admin)])
+def revoke_credential(identity: int, db=Depends(get_db)):
+    db.execute(update(AlphaSlot).where(AlphaSlot.id == 1).values(id=1))
+    row = db.get(ReportCredential, identity)
+    if not row:
+        raise HTTPException(404, "Reporting credential not found")
+    if row.revoked_at is None:
+        row.revoked_at = now()
+        audit(db, "report-credential-revoked", "report-credential", row.id)
+    commit(db)
+    return {"id": row.id, "revoked": True}
 
 @app.post("/api/queue/reserve", dependencies=[Depends(admin)])
 def reserve(db=Depends(get_db)):

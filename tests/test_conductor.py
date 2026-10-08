@@ -61,7 +61,26 @@ class ConductorTests(unittest.TestCase):
         self.assertTrue(all(r.status_code == 201 for r in results))
         ids = {r.json()['id'] for r in results}
         self.assertEqual(len(ids), 1)
-        critical = c.post('/api/reports',headers={'Authorization':'Bearer test-report-token'},json={**low,'severity':'critical','error_signature':'critical'}).json()
+        issued=c.post(f'/api/projects/{pid}/report-credentials',headers=h,json={'name':'Application reporter'})
+        self.assertEqual(issued.status_code,201)
+        token=issued.json()['token']
+        reporting_headers={'Authorization':'Bearer '+token}
+        self.assertEqual(c.post('/api/reports',headers={'Authorization':'Bearer test-report-token'},json=low).status_code,401)
+        other=c.post('/api/projects',headers=h,json={**payload,'name':'Other','slug':'other'}).json()['id']
+        self.assertEqual(c.post('/api/reports',headers=reporting_headers,json={**low,'project_id':other}).status_code,403)
+        self.assertEqual(c.get('/api/overview',headers=reporting_headers).status_code,401)
+        critical = c.post('/api/reports',headers=reporting_headers,json={**low,'severity':'critical','error_signature':'critical'}).json()
+        self.assertNotIn('notes',critical)
+        listed=c.get(f'/api/projects/{pid}/report-credentials',headers=h)
+        self.assertNotIn(token,listed.text)
+        self.assertNotIn('token_digest',listed.text)
+        from app.models import ReportCredential
+        from app.core.database import Session
+        with Session() as db:
+            credential=db.get(ReportCredential,issued.json()['id'])
+            self.assertNotEqual(credential.token_digest,token)
+        self.assertEqual(c.post(f"/api/report-credentials/{issued.json()['id']}/revoke",headers=h).status_code,200)
+        self.assertEqual(c.post('/api/reports',headers=reporting_headers,json=low).status_code,401)
         self.assertEqual(c.get('/api/overview',headers={'Authorization':'Bearer test-report-token'}).status_code,401)
         with ThreadPoolExecutor(max_workers=2) as pool:
             reservations=list(pool.map(lambda _: c.post('/api/queue/reserve',headers=h),range(2)))
